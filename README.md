@@ -125,3 +125,127 @@ ReactDOM.render(
 而第二个参数则是挂载的目标 DOM
 
 总而言之，render 方法的作用就是将虚拟 DOM 渲染成真实的 DOM，下面是它的实现：
+
+```js
+function render(vnode, container) {
+  console.log("vnode:", vnode);
+  /**
+   * vnode: 虚拟DOM对象
+   * {
+    "tag": "div",
+    "attrs": {
+        "className": "class1",
+        "style": "color: red;"
+    },
+    "children": [
+        "hello",
+        {
+            "tag": "span",
+            "attrs": {
+                "className": "class2",
+                "style": "color: blue;"
+            },
+            "children": [
+                "world!"
+            ]
+        }
+    ]
+  }
+   */
+  // 当vnode是字符串时，表示创建一个文本节点
+  if (typeof vnode === "string") {
+    const textNode = document.createTextNode(vnode);
+    container.appendChild(textNode);
+    return;
+  }
+
+  // 创建元素节点
+  const dom = document.createElement(vnode.tag);
+
+  // 设置属性
+  if (vnode.attrs) {
+    for (const key in vnode.attrs) {
+      const value = vnode.attrs[key];
+      setAttribute(dom, key, value);
+    }
+  }
+
+  // 递归渲染子节点
+  if (vnode.children) {
+    vnode.children.forEach((child) => render(child, dom));
+  }
+
+  // 将生成的DOM元素添加到容器中
+  container.appendChild(dom);
+}
+
+// 设置属性需要考虑一些特殊情况，我们单独将其拿出来作为一个方法setAttribute
+function setAttribute(dom, key, value = "") {
+  // 如果属性是以on开头的，则表示是一个事件监听
+  if (key.startsWith("on")) {
+    dom[key.toLowerCase()] = value;
+    return;
+  }
+  // 如果属性名是style, 则更新style样式
+  if (key === "style") {
+    // <h1 style="color: red; font-size:50px;">cssText 属性</h1>
+    if (typeof value === "string") {
+      dom.style.cssText = value;
+      return;
+    }
+    if (typeof value === "object") {
+      for (const key in value) {
+        // 可以通过style={ width: 20 }这种形式来设置样式，可以省略掉单位px
+        dom.style[key] =
+          typeof value[key] === "number" ? `${value[key]}px` : value[key];
+      }
+      return;
+    }
+  }
+  // 普通属性则直接更新属性
+  value ? dom.setAttribute(key, value) : dom.removeAttribute(key);
+}
+```
+
+这里其实还有个小问题：当多次调用 render 函数时，不会清除原来的内容。所以我们将其附加到 ReactDOM 对象上时，先清除一下挂载目标 DOM 的内容：
+
+```jsx
+const ReactDOM = {
+  render: (vnode, container) => {
+    container.innerHTML = "";
+    return render(vnode, container);
+  },
+};
+```
+
+## 渲染和更新
+
+到这里我们已经实现了 React 最为基础的功能，可以用它来做一些事了。
+
+我们先在 index.html 中添加一个根节点
+
+```html
+<div id="root"></div>
+```
+
+我们先来试试官方文档中的 [Hello,World](https://legacy.reactjs.org/docs/rendering-elements.html#rendering-an-element-into-the-dom)
+
+```jsx
+ReactDOM.render(<h1>Hello, world!</h1>, document.getElementById("root"));
+```
+
+试试渲染一段动态的代码，这个例子也来自[官方文档](https://legacy.reactjs.org/docs/rendering-elements.html#updating-the-rendered-element)
+
+```jsx
+function tick() {
+  const element = (
+    <div>
+      <h1>Hello, world!</h1>
+      <h2>It is {new Date().toLocaleTimeString()}.</h2>
+    </div>
+  );
+  ReactDOM.render(element, document.getElementById("root"));
+}
+
+setInterval(tick, 1000);
+```
