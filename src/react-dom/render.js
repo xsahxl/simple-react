@@ -1,10 +1,6 @@
 import Component from "../react/component";
 
-export function render(vnode, container) {
-  const dom = _render(vnode);
-  return container.appendChild(dom);
-}
-function _render(vnode = "") {
+export function render(vnode = "") {
   // console.log("vnode:", vnode);
   /**
    * vnode: 虚拟DOM对象
@@ -65,9 +61,10 @@ function _render(vnode = "") {
 
   // 递归渲染子节点
   if (vnode.children) {
-    vnode.children.forEach((child) => render(child, dom));
+    vnode.children.forEach((child) => {
+      dom.appendChild(render(child));
+    });
   }
-
   return dom;
 }
 
@@ -103,7 +100,7 @@ function setAttribute(dom, key, value = "") {
 //   // render后，表示组件已经初始化
 //   const vnode = component.render();
 //   // 记录此时的dom，用于后续判断组建是否初始化过。
-//   component.base = _render(vnode);
+//   component.base = render(vnode);
 // }
 export function renderComponent(component) {
   // 组件未初始化的时候（component.base为空），只走componentDidMount
@@ -116,7 +113,7 @@ export function renderComponent(component) {
     component.componentWillUpdate();
   }
 
-  base = _render(renderer);
+  base = render(renderer);
 
   if (component.base) {
     if (component.componentDidUpdate) component.componentDidUpdate();
@@ -130,6 +127,7 @@ export function renderComponent(component) {
   }
 
   component.base = base;
+  // 记录当前组件，后续diff时使用
   base._component = component;
 }
 

@@ -612,3 +612,270 @@ class Counter extends React.Component {
 
 ReactDOM.render(<Counter />, document.getElementById("root"));
 ```
+
+# diff 算法
+
+## 对比策略
+
+在前面两篇文章后，我们实现了一个 render 方法，它能将虚拟 DOM 渲染成真正的 DOM，我们现在就需要改进它，让它不要再傻乎乎地重新渲染整个 DOM 树，而是找出真正变化的部分。
+
+这部分很多类 React 框架实现方式都不太一样，有的框架会选择保存上次渲染的虚拟 DOM，然后对比虚拟 DOM 前后的变化，得到一系列更新的数据，然后再将这些更新应用到真正的 DOM 上。
+
+但也有一些框架会选择直接对比虚拟 DOM 和真实 DOM，这样就不需要额外保存上一次渲染的虚拟 DOM，并且能够一边对比一边更新，这也是我们选择的方式。
+
+不管是 DOM 还是虚拟 DOM，它们的结构都是一棵树，完全对比两棵树变化的算法时间复杂度是 O(n^3)，但是考虑到我们很少会跨层级移动 DOM，所以我们只需要对比同一层级的变化。
+
+![](https://user-images.githubusercontent.com/13267437/38466062-21517a74-3b56-11e8-8f87-414943271683.png)
+
+只需要对比同一颜色框内的节点
+
+总而言之，我们的 diff 算法有两个原则：
+
+- 对比当前真实的 DOM 和虚拟 DOM，在对比过程中直接更新真实 DOM
+- 只对比同一层级的变化
+
+## 实现
+
+我们需要实现一个 diff 方法，它的作用是对比真实 DOM 和虚拟 DOM，最后返回更新后的 DOM
+
+```jsx
+/**
+ * @param {HTMLElement} dom 真实DOM
+ * @param {vnode} vnode 虚拟DOM
+ * @returns {HTMLElement} 更新后的DOM
+ */
+function diff(dom, vnode) {
+  // ...
+}
+```
+
+接下来就要实现这个方法。
+在这之前先来回忆一下我们虚拟 DOM 的结构:
+虚拟 DOM 的结构可以分为三种，分别表示文本、原生 DOM 节点以及组件。
+
+```jsx
+// 原生DOM节点的vnode
+{
+    tag: 'div',
+    attrs: {
+        className: 'container'
+    },
+    children: []
+}
+
+// 文本节点的vnode
+"hello,world"
+
+// 组件的vnode
+{
+    tag: ComponentConstrucotr,
+    attrs: {
+        className: 'container'
+    },
+    children: []
+}
+```
+
+## 对比文本节点
+
+首先考虑最简单的文本节点，如果当前的 DOM 就是文本节点，则直接更新内容，否则就新建一个文本节点，并移除掉原来的 DOM。
+
+```jsx
+// diff text node
+if (typeof vnode === "string") {
+  // 如果当前的DOM就是文本节点，则直接更新内容
+  if (dom && dom.nodeType === 3) {
+    // nodeType: https://developer.mozilla.org/zh-CN/docs/Web/API/Node/nodeType
+    if (dom.textContent !== vnode) {
+      dom.textContent = vnode;
+    }
+    // 如果DOM不是文本节点，则新建一个文本节点DOM，并移除掉原来的
+  } else {
+    out = document.createTextNode(vnode);
+    if (dom && dom.parentNode) {
+      dom.parentNode.replaceChild(out, dom);
+    }
+  }
+
+  return out;
+}
+```
+
+文本节点十分简单，它没有属性，也没有子元素，所以这一步结束后就可以直接返回结果了。
+
+## 对比非文本 DOM 节点
+
+如果 vnode 表示的是一个非文本的 DOM 节点，那就要分两种情况了：
+情况一：如果真实 DOM 不存在，表示此节点是新增的，或者新旧两个节点的类型不一样，那么就新建一个 DOM 元素，并将原来的子节点（如果有的话）移动到新建的 DOM 节点下。
+
+```jsx
+if (!dom || dom.nodeName.toLowerCase() !== vnode.tag.toLowerCase()) {
+  out = document.createElement(vnode.tag);
+
+  if (dom) {
+    [...dom.childNodes].map(out.appendChild); // 将原来的子节点移到新节点下
+
+    if (dom.parentNode) {
+      dom.parentNode.replaceChild(out, dom); // 移除掉原来的DOM对象
+    }
+  }
+}
+```
+
+情况二：如果真实 DOM 存在，并且和虚拟 DOM 是同一类型的，那我们暂时不需要做别的，只需要等待后面对比属性和对比子节点。
+
+## 对比属性
+
+实际上 diff 算法不仅仅是找出节点类型的变化，它还要找出来节点的属性以及事件监听的变化。我们将对比属性单独拿出来作为一个方法：
+
+```jsx
+function diffAttributes(dom, vnode) {
+  const old = {}; // 当前DOM的属性
+  const attrs = vnode.attrs; // 虚拟DOM的属性
+
+  for (let i = 0; i < dom.attributes.length; i++) {
+    const attr = dom.attributes[i];
+    old[attr.name] = attr.value;
+  }
+
+  // 如果原来的属性不在新的属性当中，则将其移除掉（属性值设为undefined）
+  for (let name in old) {
+    if (!(name in attrs)) {
+      setAttribute(dom, name, undefined);
+    }
+  }
+
+  // 更新新的属性值
+  for (let name in attrs) {
+    if (old[name] !== attrs[name]) {
+      setAttribute(dom, name, attrs[name]);
+    }
+  }
+}
+```
+
+## 对比子节点
+
+节点本身对比完成了，接下来就是对比它的子节点。
+这里会面临一个问题，前面我们实现的不同 diff 方法，都是明确知道哪一个真实 DOM 和虚拟 DOM 对比，但是子节点是一个数组，它们可能改变了顺序，或者数量有所变化，我们很难确定要和虚拟 DOM 对比的是哪一个。
+为了简化逻辑，我们可以让用户提供一些线索：给节点设一个 key 值，重新渲染时对比 key 值相同的节点。
+
+```jsx
+// diff方法
+if (
+  (vnode.children && vnode.children.length > 0) ||
+  (out.childNodes && out.childNodes.length > 0)
+) {
+  diffChildren(out, vnode.children);
+}
+```
+
+```jsx
+function diffChildren(dom, vchildren) {
+  const domChildren = dom.childNodes;
+  const children = [];
+
+  const keyed = {};
+
+  // 将有key的节点和没有key的节点分开
+  if (domChildren.length > 0) {
+    for (let i = 0; i < domChildren.length; i++) {
+      const child = domChildren[i];
+      const key = child.key;
+      if (key) {
+        keyed[key] = child;
+      } else {
+        children.push(child);
+      }
+    }
+  }
+
+  if (vchildren && vchildren.length > 0) {
+    let min = 0;
+    let childrenLen = children.length;
+
+    for (let i = 0; i < vchildren.length; i++) {
+      const vchild = vchildren[i];
+      const key = vchild.key;
+      let child;
+
+      // 如果有key，找到对应key值的节点
+      if (key) {
+        if (keyed[key]) {
+          child = keyed[key];
+          keyed[key] = undefined;
+        }
+
+        // 如果没有key，则优先找类型相同的节点
+      } else if (min < childrenLen) {
+        for (let j = min; j < childrenLen; j++) {
+          let c = children[j];
+
+          if (c && isSameNodeType(c, vchild)) {
+            child = c;
+            children[j] = undefined;
+
+            if (j === childrenLen - 1) childrenLen--;
+            if (j === min) min++;
+            break;
+          }
+        }
+      }
+
+      // 对比
+      child = diff(child, vchild);
+
+      // 更新DOM
+      const f = domChildren[i];
+      if (child && child !== dom && child !== f) {
+        // 如果更新前的对应位置为空，说明此节点是新增的
+        if (!f) {
+          dom.appendChild(child);
+          // 如果更新后的节点和更新前对应位置的下一个节点一样，说明当前位置的节点被移除了
+        } else if (child === f.nextSibling) {
+          removeNode(f);
+          // 将更新后的节点移动到正确的位置
+        } else {
+          // 注意insertBefore的用法，第一个参数是要插入的节点，第二个参数是已存在的节点
+          dom.insertBefore(child, f);
+        }
+      }
+    }
+  }
+}
+```
+
+## 对比组件
+
+如果 vnode 是一个组件，我们也单独拿出来作为一个方法:
+
+```jsx
+function diffComponent(dom, vnode) {
+  let c = dom && dom._component;
+  let oldDom = dom;
+
+  // 如果组件类型没有变化，则重新set props
+  if (c && c.constructor === vnode.tag) {
+    setComponentProps(c, vnode.attrs);
+    dom = c.base;
+    // 如果组件类型变化，则移除掉原来组件，并渲染新的组件
+  } else {
+    if (c) {
+      unmountComponent(c);
+      oldDom = null;
+    }
+
+    c = createComponent(vnode.tag, vnode.attrs);
+
+    setComponentProps(c, vnode.attrs);
+    dom = c.base;
+
+    if (oldDom && dom !== oldDom) {
+      oldDom._component = null;
+      removeNode(oldDom);
+    }
+  }
+
+  return dom;
+}
+```

@@ -1,4 +1,4 @@
-import { render } from "./react-dom/render";
+import { diff } from "./react-dom/diff";
 import Component from "./react/component";
 
 export function h(tag, attrs, ...children) {
@@ -22,8 +22,10 @@ const element = (
 
 const ReactDOM = {
   render: (vnode, container) => {
-    container.innerHTML = "";
-    return render(vnode, container);
+    const dom = diff(undefined, vnode);
+    console.log(dom);
+    container.appendChild(dom);
+    return dom;
   },
 };
 
