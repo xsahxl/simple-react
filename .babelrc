@@ -3,7 +3,7 @@
   "presets": ["env"],
   "plugins": [
       ["transform-react-jsx", {
-          "pragma": "h"
+          "pragma": "React.createElement"
       }]
   ]
 }
